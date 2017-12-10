@@ -1,0 +1,11 @@
+Dokumentace:
+- Knihovny
+- FAIL -> unable to open = not sufficient prava or file not found
+
+V dokumentaci vysvětlit, jak to funguje (a nespokojím se s dokumentací typu - zavoláme tuhle knihovnu a funguje to).
+
+https://cambridgespark.com/content/tutorials/implementing-your-own-spam-filter/index.html
+
+pip3 install --user <knihovna> do Makefilu
+pip3 install --user beautifulsoup4
+
