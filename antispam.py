@@ -1,31 +1,19 @@
 #!/usr/bin/env python3
 
-from __future__ import print_function, division
-import os
-import random
+from __future__ import print_function
 import sys
 import re
 import argparse
 import eml_parser
 from enum import Enum
-from nltk import word_tokenize, WordNetLemmatizer
-from nltk.corpus import stopwords
-from nltk import NaiveBayesClassifier, classify
-from sklearn.externals import joblib
 from bs4 import BeautifulSoup
 
 from common_spam_words import common_spam_words_en, common_spam_words_cz, forbidden_words
 from spam_signs import SpamSigns
 from html_tag_list import html_tag_list
 
+
 list_of_spam_signs = []
-
-# nltk.download('stopwords')
-# nltk.download('punkt')
-# nltk.download('wordnet')
-
-
-stoplist = stopwords.words('english')
 
 
 # enum of possible results
@@ -36,25 +24,6 @@ class ResultTypes(Enum):
 
 
 
-def create_and_train_classifier():
-    # initialise the data
-    spam = init_lists('Tests/aaa/spam/')
-    spam += init_lists('Tests/enron3/spam/')
-    ham = init_lists('Tests/aaa/ham/')
-    ham += init_lists('Tests/enron3/ham/')
-    all_emails = [(email, 'spam') for email in spam]
-    all_emails += [(email, 'ham') for email in ham]
-    random.shuffle(all_emails)
-
-    # extract the features
-    all_features = [(get_features(email), label) for (email, label) in all_emails]
-
-    # train the classifier
-    classifier = NaiveBayesClassifier.train(all_features)
-    joblib.dump(classifier, 'classifier')
-    sys.exit(0)
-
-
 # print result of an e-mail
 def print_result(result_value):
     if result_value == ResultTypes.OK:
@@ -63,25 +32,6 @@ def print_result(result_value):
         print(" - SPAM - " + str(list_of_spam_signs))
     elif result_value == ResultTypes.FAIL:
         print(" - FAIL - failed to open e-mail file")
-
-
-def init_lists(folder):
-    a_list = []
-    file_list = os.listdir(folder)
-    for a_file in file_list:
-        f = open(folder + a_file, 'rb')
-        a_list.append(f.read())
-    f.close()
-    return a_list
-
-
-def preprocess(sentence):
-    lemmatizer = WordNetLemmatizer()
-    return [lemmatizer.lemmatize(word.lower()) for word in word_tokenize(str(sentence, errors='ignore'))]
-
-
-def get_features(text):
-    return {word: True for word in preprocess(text) if not word in stoplist}
 
 
 
@@ -118,7 +68,7 @@ def get_sender_recipient_subject(parsed_email):
 
 
 
-def too_many_empty_lines(email_body, value):
+def too_many_empty_lines(email_body):
     empty_lines_count = 0
     email_lines = email_body.split('\n')
 
@@ -130,14 +80,14 @@ def too_many_empty_lines(email_body, value):
             empty_lines_count += 1
 
     if float(empty_lines_count / len(email_lines)) * 100.0 > 25:
-        return float(empty_lines_count / len(email_lines)) * 100.0 * 2 * value
+        return float(empty_lines_count / len(email_lines)) * 100.0 * 2
 
     return 0
 
 
 
 def remove_html(email_content):
-    soup = BeautifulSoup(email_content, "html.parser")
+    soup = BeautifulSoup(email_content, "html5lib")
 
     for script in soup(["script", "style"]):
         script.extract()
@@ -152,7 +102,7 @@ def remove_html(email_content):
 
 
 
-def get_bad_word_content_score(email_content, value):
+def get_bad_word_content_score(email_content):
     global list_of_spam_signs
     bad_word_count = 0
     words_in_content = re.findall(r"[\w']+", email_content)
@@ -160,57 +110,46 @@ def get_bad_word_content_score(email_content, value):
     if len(words_in_content) == 0:
         return 0
 
-    # email_body = email_body.replace('\'', '\'')
-    # for word in words_in_content:
-    #     if word in common_spam_words_en + common_spam_words_cz:
-    #         bad_word_count += 1
-    #         list_of_spam_signs.append("CONTAINS: " + word)
-
-    #     elif word in forbidden_words:
-    #         bad_word_count += 10
-    #         list_of_spam_signs.append("CONTAINS: " + word)
-
     for bad_word in common_spam_words_en + common_spam_words_cz:
-        occurences = re.findall(r'\s' + bad_word.replace(' ', '\s*') + r'\s', email_content)
+        occurences = re.findall(r' ' + bad_word.replace(' ', '\s*') + r' ', email_content)
+        # occurences = re.findall(r'(?<![a-zA-Z])' + bad_word.replace(' ', '\s*') + r'(?![a-zA-Z])', email_content)
         if occurences != []:
             bad_word_count += len(occurences)
-            # bad_word_count += email_content.count(bad_word)
             list_of_spam_signs.append("CONTAINS: " + bad_word)
-            # sys.stderr.write(str(bad_word) + " ")
 
     for forbidden_word in forbidden_words:
-        occurences = re.findall(r'\s' + forbidden_word.replace(' ', '\s*') + r'\s', email_content)
+        occurences = re.findall(r' ' + forbidden_word.replace(' ', '\s*') + r' ', email_content)
+        # occurences = re.findall(r'(?<![a-zA-Z])' + forbidden_word.replace(' ', '\s*') + r'(?![a-zA-Z])', email_content)
         if occurences != []:
             bad_word_count += len(occurences) * 10
-            # bad_word_count += email_content.count(forbidden_word) * 10
             list_of_spam_signs.append("CONTAINS: " + forbidden_word)
 
-    # for bad_word in common_spam_words_en + common_spam_words_cz:
-    #     if bad_word in email_body:
-    #         # r = re.compile(r'[^a-zA-Z]' + bad_word + r'[^a-zA-Z]')
-    #         # bad_word_count += len(re.findall(r + bad_word + r, email_body))
-    #         # bad_word_count += email_body.count(' ' + bad_word) + email_body.count(bad_word + ' ')
-    #         list_of_spam_signs.append("CONTAINS: " + bad_word)
+    return min(float(bad_word_count / remove_html(email_content)) * 100.0, 60)
 
-    # for forbidden_word in forbidden_words:
-    #     if forbidden_word in email_body:
-    #         # bad_word_count += len(re.findall(r'[^a-zA-Z]' + forbidden_word + r'[^a-zA-Z]', email_body)) * 5
-    #         # bad_word_count += (email_body.count(' ' + forbidden_word) + email_body.count(forbidden_word + ' ')) * 5
-    #         list_of_spam_signs.append("CONTAINS: " + forbidden_word)
 
-    # sys.stderr.write(str(float(bad_word_count / remove_html(email_content)) * 100.0) + '\n')
 
-    score = float(bad_word_count / remove_html(email_content)) * 100.0
+def get_non_ascii_characters_score(email_content):
+    global list_of_spam_signs
 
-    non_ascii_chars = []
+    non_ascii_chars = 0
     for char in email_content:
         if ord(char) >= 128 and ord(char) not in [225, 205, 237, 269, 271, 233, 283, 328, 243, 345, 353, 357, 250, 367, 366, 253, 382, 193, 268, 270, 201, 282, 327, 211, 344, 352, 356, 218, 221, 381]:
-            non_ascii_chars.append(char)
+            non_ascii_chars += 1
 
-    if len(non_ascii_chars) != 0:
+    if non_ascii_chars != 0:
         list_of_spam_signs.append(SpamSigns.NON_ASCII_CHARACTERS.value)
 
-    score += float(len(non_ascii_chars) * 40.0 / remove_html(email_content))
+    return float(non_ascii_chars * 40.0 / remove_html(email_content))
+
+
+
+def get_many_single_chars_score(email_content):
+    global list_of_spam_signs
+    words_in_content = re.findall(r"[\w']+", email_content)
+    score = 0
+
+    if len(words_in_content) == 0:
+        return 0
 
     single_char_count = 0
     for word in words_in_content:
@@ -222,11 +161,11 @@ def get_bad_word_content_score(email_content, value):
         score += single_char_ratio * 4
         list_of_spam_signs.append(SpamSigns.MANY_SINGLE_CHARS.value)
 
-    return score * value
+    return score
 
 
 
-def get_html_content_score(email_content, value):
+def get_html_content_score(email_content):
     global list_of_spam_signs
     score = 0.0
     for html_tag in html_tag_list:
@@ -237,22 +176,22 @@ def get_html_content_score(email_content, value):
             list_of_spam_signs.append(SpamSigns.BGSOUND_TAG.value)
             score += 1.0
 
-    soup = BeautifulSoup(email_content, "html.parser")
+    soup = BeautifulSoup(email_content, "html5lib")
     if len(soup.find_all(b'font')) > 1:
-        list_of_spam_signs.append(SpamSigns.MANY_FONTS)
+        list_of_spam_signs.append(SpamSigns.MANY_FONTS.value)
         score += 10 * len(soup.find_all(b'font'))
 
-    return score * value
+    return score
 
 
 
-def get_external_links_score(email_content, value):
+def get_external_links_score(email_content):
     global list_of_spam_signs
     score = 0.0
 
     external_links = re.findall(r'http[s]?://[a-zA-Z0-9.:/\-~?=&_]*', email_content)
     fishy_external_links = re.findall(r'http[s]?\s+:\s+', email_content)
-    score += len(fishy_external_links) * 2 * value
+    score += len(fishy_external_links) * 2
 
     if external_links == []:
         return score
@@ -262,15 +201,15 @@ def get_external_links_score(email_content, value):
         list_of_spam_signs.append(SpamSigns.MANY_EXTERNAL_LINKS.value)
 
     for link in external_links:
-        if re.search(r'(\.ru|goo\.gl)', link) != None:
+        if re.search(r'(\.ru|goo\.gl|bit\.ly)', link) != None:
             score += 5.0
             list_of_spam_signs.append("URL CONTAINS: " + str(re.search(r'(\.ru|goo\.gl)', link).group()))
 
-    return score * value
+    return score
 
 
 
-def get_uppercase_score(email_content, value):
+def get_uppercase_score(email_content):
     global list_of_spam_signs
     uppercase_word_count = 0
     words_in_content = re.findall(r"[#\w']+", email_content)
@@ -290,21 +229,21 @@ def get_uppercase_score(email_content, value):
     if uppercase_word_count != 0:
         list_of_spam_signs.append(SpamSigns.UPPERCASE_WORDS.value)
 
-    return min(float(uppercase_word_count / float(remove_html(email_content))) * value * 50.0, 15.0)
+    return min(float(uppercase_word_count / float(remove_html(email_content))) * 50.0, 15.0)
 
 
 
-def get_fishy_characters_score(email_content, value):
+def get_fishy_characters_score(email_content):
     global list_of_spam_signs
     fishy_characters_score = 0
 
     for fishy_character in ['!', '?', '=']:
         if email_content.count(fishy_character) != 0:
-            fishy_characters_score += float(email_content.count(fishy_character) / remove_html(email_content)) * value * 20
+            fishy_characters_score += float(email_content.count(fishy_character) / remove_html(email_content)) * 20
 
     for fishy_character in ['$', '#', '%', '*', '€']:
         if email_content.count(fishy_character) != 0:
-            fishy_characters_score += float(email_content.count(fishy_character) / remove_html(email_content)) * value * 40
+            fishy_characters_score += float(email_content.count(fishy_character) / remove_html(email_content)) * 40
 
     if fishy_characters_score > 0.5:
         list_of_spam_signs.append(SpamSigns.MANY_FISHY_CHARACTERS.value)
@@ -319,17 +258,19 @@ def get_content_spam_score(email_content, content_type):
     score = 0.0
     value = 1.5 if content_type == 'subject' else 1.0
 
-    score += get_uppercase_score(email_content, value)
+    score += get_uppercase_score(email_content)
     email_content = email_content.lower()
-    score += get_bad_word_content_score(email_content, value)
-    score += get_html_content_score(email_content, value)
-    score += get_external_links_score(email_content, value)
-    score += get_fishy_characters_score(email_content, value)
+    score += get_bad_word_content_score(email_content)
+    score += get_non_ascii_characters_score(email_content)
+    score += get_many_single_chars_score(email_content)
+    score += get_html_content_score(email_content)
+    score += get_external_links_score(email_content)
+    score += get_fishy_characters_score(email_content)
 
-    if too_many_empty_lines(email_content, value) is True:
+    if too_many_empty_lines(email_content) is True:
         score += list_of_spam_signs.append(SpamSigns.MANY_EMPTY_LINES.value)
 
-    return score
+    return score * value
 
 
 def get_sender_score(sender):
@@ -338,9 +279,8 @@ def get_sender_score(sender):
 
     if sender.isspace():
         score += 10.0
-    else:
-        if '@' not in sender:
-            score += 10.0
+    elif '@' not in sender:
+        score += 10.0
 
     if score != 0.0:
         list_of_spam_signs.append(SpamSigns.FISHY_SENDER.value)
@@ -356,6 +296,7 @@ def check_email(email_content):
     try:
         parsed_email = eml_parser.eml_parser.decode_email_b(email_content, include_raw_body=True, include_attachment_data=True)
     except:
+        list_of_spam_signs.append("error in decoding the e-mail")
         print_result(ResultTypes.SPAM)
         return
 
@@ -383,10 +324,11 @@ def check_email(email_content):
 
     else:
         for index in range(len(parsed_email['body'])):
-            score += get_content_spam_score(parsed_email['body'][index]['content'], 'body')
-        # if 'content_header' not in parsed_email['body'][0] or parsed_email['body'][0]['content_header'] == {}:
-        #     list_of_spam_signs.append(SpamSigns.EMPTY_CONTENT_HEADER.value)
-        #     score += 5
+            if 'content' in parsed_email['body'][index]:
+                score += get_content_spam_score(parsed_email['body'][index]['content'], 'body')
+        if 'content_header' not in parsed_email['body'][0] or parsed_email['body'][0]['content_header'] == {}:
+            list_of_spam_signs.append(SpamSigns.EMPTY_CONTENT_HEADER.value)
+            score += 5
 
     if 'attachment' in parsed_email and len(parsed_email['attachment']) > 0:
         list_of_spam_signs.append(SpamSigns.CONTAINS_ATTACHMENT.value)
@@ -403,30 +345,25 @@ def check_email(email_content):
     # print_result(ResultTypes.SPAM)
     # print(score)
 
-    if score < 43.0 or len(list_of_spam_signs) < 1:
+    if score < 75 or len(list_of_spam_signs) < 1:
         print_result(ResultTypes.OK)
     else:
         print_result(ResultTypes.SPAM)
     # TODO set max limits
+    # TODO Czech dict
+    # TODO BS to try block
+    # TODO check penalizace w/ Oonnoon
 
-    return 'spam'
+    return
 
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train', dest='train', action='store_true',
-                        help='train the classifier and exit')
     parser.add_argument('email_filepaths', type=str, nargs='*',
                         help='paths to input e-mails')
 
     arguments = parser.parse_args()
-
-    if arguments.train:
-        create_and_train_classifier()
-
-    # TODO add other classifiers
-    classifier = joblib.load('classifier')
 
     for single_email_path in arguments.email_filepaths:
         del list_of_spam_signs[:]
@@ -442,22 +379,8 @@ def main():
         email_content = single_email.read()
         single_email.close()
 
-        # classify e-mail with the Bayes classifier
-        # Bayes_email_class = classifier.classify(get_features(email_content))
-        word_check_email_class = check_email(email_content)
+        check_email(email_content)
 
-        # if Bayes_email_class == word_check_email_class == 'spam':
-        #     print_result(ResultTypes.SPAM)
-
-        # elif Bayes_email_class == word_check_email_class == 'ham':
-        #     print_result(ResultTypes.OK)
-
-        # else:
-        #     if Bayes_email_class == 'ham':
-        #         print_result(ResultTypes.OK)
-
-        #     print("NOT SURE - BAYES x WORDS == " + str(Bayes_email_class) + " x " + word_check_email_class)
-        #     print_result(ResultTypes.OK)
 
 
 if __name__ == '__main__':
